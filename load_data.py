@@ -307,7 +307,7 @@ class PatchTransformer(nn.Module):
         self.minangle = -20 / 180 * math.pi
         self.maxangle = 20 / 180 * math.pi
         self.medianpooler = MedianPool2d(7,same=True)
-        self.patch_scale = 1.5
+        self.patch_scale = 2
         '''
         kernel = torch.cuda.FloatTensor([[0.003765, 0.015019, 0.023792, 0.015019, 0.003765],
                                          [0.015019, 0.059912, 0.094907, 0.059912, 0.015019],
@@ -381,6 +381,7 @@ class PatchTransformer(nn.Module):
         lab_batch_scaled[:, :, 3] = lab_batch[:, :, 3] * img_size
         lab_batch_scaled[:, :, 4] = lab_batch[:, :, 4] * img_size
         target_size = torch.sqrt(((lab_batch_scaled[:, :, 3].mul(0.2)) ** 2) + ((lab_batch_scaled[:, :, 4].mul(0.2)) ** 2))
+        target_size *= self.patch_scale
         target_x = lab_batch[:, :, 1].view(np.prod(batch_size))
         target_y = lab_batch[:, :, 2].view(np.prod(batch_size))
         targetoff_x = lab_batch[:, :, 3].view(np.prod(batch_size))

@@ -10,26 +10,43 @@ COCOParser = bbb.io.parser.detection.CocoParser(class_label_map={0: 'person'})
 # annotations = darknetParser.parse('inria/Test/pos/yolo-labels/')
 annotations = bbb.io.load(darknetParser, 'testing/clean/yolo-labels/')
 print(annotations.head())
-patch_results = bbb.io.load(COCOParser, 'patch_results.json')
-print(patch_results.head())
+# patch_results = bbb.io.load(COCOParser, 'patch_results.json')
 # patch_up = bbb.io.parse('det_coco', 'patch_up.json', class_label_map={0: 'person'})
-clean_results = bbb.io.load(COCOParser, 'clean_results.json')
-# noise_results = bbb.io.parse('det_coco', 'noise_results.json', class_label_map={0: 'person'})
+# clean_results = bbb.io.load(COCOParser, 'clean_results.json')
+noise_results = bbb.io.load(COCOParser, 'patch_results.json')
 # class_results = bbb.io.parse('det_coco', 'class_shift.json', class_label_map={0: 'person'})
 # class_only = bbb.parse('det_coco', 'class_only.json', class_label_map={0: 'person'})
 
 plt.figure()
-teddy = bbb.stat.pr(patch_results, annotations)
-print(teddy)
+# teddy = bbb.stat.pr(patch_results, annotations)
+# print(teddy)
 # up = bbb.stat.pr(patch_up, annotations)['person']
 # noise = bbb.stat.pr(noise_results, annotations)['person']
-clean = bbb.stat.pr(clean_results, annotations)
+# clean = bbb.stat.pr(clean_results, annotations)
+# print(clean)
+noise = bbb.stat.pr(noise_results, annotations)
+print(noise)
 # class_shift = bbb.stat.pr(class_results, annotations)['person']
 # class_only_pr = bbb.stat.pr(class_only, annotations)['person']
 
 
+#
+# plt.plot(teddy['recall'], teddy['precision'])
+# plt.gca().set_ylabel('Precision')
+# plt.gca().set_xlabel('Recall')
+# plt.gca().set_xlim([0, 1.05])
+# plt.gca().set_ylim([0, 1.05])
+# plt.show()
 
-plt.plot(teddy['recall'], teddy['precision'])
+plt.plot(noise['recall'], noise['precision'])
+plt.gca().set_ylabel('Precision')
+plt.gca().set_xlabel('Recall')
+plt.gca().set_xlim([0, 1.05])
+plt.gca().set_ylim([0, 1.05])
+plt.show()
+
+
+
 #
 # plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
 #
@@ -48,11 +65,12 @@ plt.plot(teddy['recall'], teddy['precision'])
 # ap = bbb.ap(class_only_pr[0], class_only_pr[1])
 # plt.plot(class_only_pr[1], class_only_pr[0], label=f'CLS: AP: {round(ap*100, 2)}%')
 
-#plt.gcf().suptitle('PR-curve')
+# #plt.gcf().suptitle('PR-curve')
+# plt.plot(noise['recall'], noise['precision'])
 # plt.gca().set_ylabel('Precision')
 # plt.gca().set_xlabel('Recall')
 # plt.gca().set_xlim([0, 1.05])
 # plt.gca().set_ylim([0, 1.05])
-# plt.gca().legend(loc=4)
-# plt.savefig('pr-curve.eps')
-plt.show()
+# # plt.gca().legend(loc=4)
+# # plt.savefig('pr-curve.eps')
+# plt.show()
