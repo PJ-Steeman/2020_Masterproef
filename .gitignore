@@ -1,0 +1,12 @@
+runs/
+weights/
+testing/
+inria/
+coco/
+@PJ_PATCHES/
+__pycache__/
+persons/
+.idea/
+.ipynb_checkpoints/
+saved_patches/
+test/
