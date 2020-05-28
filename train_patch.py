@@ -30,7 +30,7 @@ class PatchTrainer(object):
         self.darknet_model.load_weights(self.config.weightfile)
         self.darknet_model = self.darknet_model.eval().cuda() # TODO: Why eval?
         self.patch_applier = PatchApplier().cuda()
-        self.patch_transformer = PatchTransformerKeypoints().cuda()
+        self.patch_transformer = PatchTransformer().cuda()
         self.prob_extractor = MaxProbExtractor(0, 80, self.config).cuda()
         self.prob_extractor_class = MaxProbExtractor(15, 80, self.config).cuda()
         self.nps_calculator = NPSCalculator(self.config.printfile, self.config.patch_size).cuda()
@@ -55,33 +55,33 @@ class PatchTrainer(object):
         img_size = self.darknet_model.height
         batch_size = self.config.batch_size
         n_epochs = 100
-        max_lab = 5
+        max_lab = 14
 
         time_str = time.strftime("%Y%m%d-%H%M%S")
 
         # Generate stating point
-        adv_patch_cpu = self.generate_patch("random")
+        adv_patch_cpu = self.generate_patch("gray")
         #adv_patch_cpu = self.read_image("@PJ_PATCHES/patch_scale1_5.jpg")
 
         adv_patch_cpu.requires_grad_(True)
 
-        # train_loader = torch.utils.data.DataLoader(InriaDataset(self.config.img_dir, self.config.lab_dir, max_lab, img_size,
-        #                                                         shuffle=True),
-        #                                            batch_size=batch_size,
-        #                                            shuffle=True,
-        #                                            num_workers=10)
+        train_loader = torch.utils.data.DataLoader(InriaDataset(self.config.img_dir, self.config.lab_dir, max_lab, img_size,
+                                                                shuffle=True),
+                                                   batch_size=batch_size,
+                                                   shuffle=True,
+                                                   num_workers=10)
 
-        train_loader = torch.utils.data.DataLoader(CocoKeypointDataset(self.config.img_dir, self.config.lab_dir, img_size, max_lab),
-                                                    batch_size=batch_size,
-                                                    shuffle=True,
-                                                    num_workers=10)
+        # train_loader = torch.utils.data.DataLoader(CocoKeypointDataset(self.config.img_dir, self.config.lab_dir, img_size, max_lab),
+        #                                             batch_size=batch_size,
+        #                                             shuffle=True,
+        #                                             num_workers=10)
         self.epoch_length = len(train_loader)
         print(f'One epoch is {len(train_loader)}')
 
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
 
-        aant_show = 9
+        aant_show = 3
         tellerke = 0
 
         et0 = time.time()
@@ -100,8 +100,8 @@ class PatchTrainer(object):
 
                     #print('TRAINING EPOCH %i, BATCH %i'%(epoch, i_batch))
                     adv_patch = adv_patch_cpu.cuda()
-                    # adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size, do_rotate=True, rand_loc=False)
-                    adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size)
+                    adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size, do_rotate=True, rand_loc=False)
+                    # adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size)
                     p_img_batch = self.patch_applier(img_batch, adv_batch_t)
                     p_img_batch = F.interpolate(p_img_batch, (self.darknet_model.height, self.darknet_model.width))
 
@@ -155,9 +155,9 @@ class PatchTrainer(object):
                         torch.cuda.empty_cache()
                     bt0 = time.time()
 
-            if epoch%5 == 0:
-                #img.show()
-                img.save("@PJ_PATCHES/patch_cat2_scale1_5_persons.png")
+            # if epoch%5 == 0:
+            #     #img.show()
+            #     img.save("@PJ_PATCHES/patch_cat2_scale1_5_persons.png")
 
             et1 = time.time()
             ep_det_loss = ep_det_loss/len(train_loader)
@@ -182,7 +182,7 @@ class PatchTrainer(object):
                 im = transforms.ToPILImage('RGB')(adv_patch_cpu)
                 #plt.imshow(im)
                 #plt.show()
-                im.save("@PJ_PATCHES/patch_cat2_scale1_5.jpg")
+                im.save("@PJ_PATCHES/final_cat_1s.jpg")
                 del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss, class_loss
                 torch.cuda.empty_cache()
             et0 = time.time()

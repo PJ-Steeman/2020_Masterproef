@@ -19,8 +19,8 @@ if __name__ == '__main__':
     imgdir = "inria/Test/pos"
     cfgfile = "cfg/yolo.cfg"
     weightfile = "weights/yolo.weights"
-    patchfile = "@PJ_PATCHES/patch_scale2.jpg"
-    #patchfile = "/home/pieter-jan/Desktop/class_detection.png"
+    patchfile = "@PJ_PATCHES/patch_cat_scale1_5.jpg"
+    # patchfile = "patches/object_score.png"
     #patchfile = "/home/wvr/Pictures/class_only.png"
     #patchfile = "/home/wvr/Pictures/class_transfer.png"
     savedir = "testing"
@@ -137,7 +137,7 @@ if __name__ == '__main__':
                     textfile.write(f'{cls_id} {x_center} {y_center} {width} {height}\n')
                     patch_results.append({'image_id': name, 'bbox': [x_center.item() - width.item() / 2, y_center.item() - height.item() / 2, width.item(), height.item()], 'score': box[4].item(), 'category_id': 1})
             textfile.close()
-            '''
+
             #maak een random patch, transformeer hem en voeg hem toe aan beeld
             random_patch = torch.rand(adv_patch_cpu.size()).cuda()
             adv_batch_t = patch_transformer(random_patch, lab_fake_batch, img_size, do_rotate=True, rand_loc=False)
@@ -163,7 +163,7 @@ if __name__ == '__main__':
                     textfile.write(f'{cls_id} {x_center} {y_center} {width} {height}\n')
                     noise_results.append({'image_id': name, 'bbox': [x_center.item() - width.item() / 2, y_center.item() - height.item() / 2, width.item(), height.item()], 'score': box[4].item(), 'category_id': 1})
             textfile.close()
-            '''
+
     with open('clean_results.json', 'w') as fp:
         json.dump(clean_results, fp)
     with open('noise_results.json', 'w') as fp:
