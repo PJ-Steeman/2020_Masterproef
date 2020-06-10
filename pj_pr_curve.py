@@ -24,8 +24,8 @@ clean_ap = bbb.stat.ap(clean)
 noise_ap = bbb.stat.ap(noise)
 patch_ap = bbb.stat.ap(patch)
 
-plt.plot(clean['recall'], clean['precision'], label=f'CLEAN: AP: {round(clean_ap*100, 2)}%')
-plt.plot(noise['recall'], noise['precision'], label=f'NOISE: AP: {round(noise_ap*100, 2)}%')
+# plt.plot(clean['recall'], clean['precision'], label='CLEAN')
+# plt.plot(noise['recall'], noise['precision'], label=f'NOISE: AP: {round(noise_ap*100, 2)}%')
 plt.plot(patch['recall'], patch['precision'], label=f'PATCH: AP: {round(patch_ap*100, 2)}%')
 
 plt.gcf().suptitle('PR-curve')

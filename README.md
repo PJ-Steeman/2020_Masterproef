@@ -23,9 +23,17 @@ pip install tensorboardX tensorboard
 Gelieve volgende commando's uit te voeren om de correcte dataset en gewichten te downloaden:
 ```
 mkdir weights; curl https://pjreddie.com/media/files/yolov2.weights -o weights/yolo.weights
-```
-Nu kan u het volgdene commando uitvoeren om het trainen van de patch te beginnen
 
 ```
-python3 train_patch.py paper_obj
+Indien u gebruik wil maken van de COCO keypoint dataloader en patch applier, dient u de COCO dataset en API te downloaden en installeren, zoals aangegeven op hun website: http://cocodataset.org/#home en GitHub: https://github.com/cocodataset/cocoapi
+
+Nu kan u het volgende commando uitvoeren om het trainen van de patch, die de objectklasse van een persoon in die van een zebra verandert, te beginnen.
+Om de gewenste klasse aan te passen moet men in de in train_patch.py op lijn 35 de eerste parameter aanpassen.
+
 ```
+python3 train_patch.py exp1
+```
+
+De code die gebruik maakt van de COCO keypoint dataset staat op dit moment uitgecommentarieerd.
+Om de werking hiervan te bekijken moet men het pad in de patch_config.py file aanpassen.
+Ook moet men in train_patch.py de dataloader en patch applier aanpassen.

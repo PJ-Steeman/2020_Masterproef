@@ -31,8 +31,9 @@ class PatchTrainer(object):
         self.darknet_model = self.darknet_model.eval().cuda() # TODO: Why eval?
         self.patch_applier = PatchApplier().cuda()
         self.patch_transformer = PatchTransformer().cuda()
+        # self.patch_transformer = PatchTransformerKeypoints().cuda()
         self.prob_extractor = MaxProbExtractor(0, 80, self.config).cuda()
-        self.prob_extractor_class = MaxProbExtractor(15, 80, self.config).cuda()
+        self.prob_extractor_class = MaxProbExtractor(22, 80, self.config).cuda()
         self.nps_calculator = NPSCalculator(self.config.printfile, self.config.patch_size).cuda()
         self.total_variation = TotalVariation().cuda()
 
