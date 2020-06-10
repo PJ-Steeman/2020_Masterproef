@@ -37,3 +37,11 @@ python3 train_patch.py exp1
 De code die gebruik maakt van de COCO keypoint dataset staat op dit moment uitgecommentarieerd.
 Om de werking hiervan te bekijken moet men het pad in de patch_config.py file aanpassen.
 Ook moet men in train_patch.py de dataloader en patch applier aanpassen.
+
+# Belangrijkste files
+
+In load_data vindt u de verschillende modules voor het deep learning algoritme, zoals de DataLoader en PatchApplier.
+In train_patch vindt u het algoritme zelf.
+In patch_config kan u enkele parameters van de patch aanpassen.
+In test_patch worden de patches getest en de uitkomst opgeslagen in een json file.
+In pj_pr_curve staat de nieuwe code om de PR curves te vormen aan de hand van brambox.
