@@ -15,6 +15,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 from pycocotools.coco import COCO
+import matplotlib.pyplot as plt
 
 from darknet import Darknet
 
@@ -288,6 +289,140 @@ class PatchTransformerKeypoints(nn.Module):
 
         return adv_batch
 
+class PatchTransformerKeypointsTensors(nn.Module):
+    def __init__(self):
+        super(PatchTransformerKeypointsTensors, self).__init__()
+        self.min_contrast = 0.8
+        self.max_contrast = 1.2
+        self.min_brightness = -0.1
+        self.max_brightness = 0.1
+        self.noise_factor = 0.10
+        self.medianpooler = MedianPool2d(7,same=True)
+        self.patch_scale = 0.75
+
+    def forward(self, adv_patch, lab_batch, img_size):
+        adv_patch = self.medianpooler(adv_patch.unsqueeze(0))
+        adv_patch = adv_patch.unsqueeze(0)
+        patch_size = adv_patch.size(3)
+        # pad = (img_size - adv_patch.size(-1)) / 2
+
+        # Maak een tensor de grootte van de lab_batch size, hierin komen de patches
+        # adv_batch = torch.cuda.FloatTensor(lab_batch.size(0), lab_batch.size(1), 3, img_size, img_size).fill_(0)
+        adv_batch = adv_patch.expand(lab_batch.size(0), lab_batch.size(1), -1, -1, -1)
+        batch_size = torch.Size((lab_batch.size(0), lab_batch.size(1)))
+
+        # Create random contrast tensor
+        contrast = torch.cuda.FloatTensor(batch_size).uniform_(self.min_contrast, self.max_contrast)
+        contrast = contrast.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        contrast = contrast.expand(-1, -1, adv_batch.size(-3), adv_batch.size(-2), adv_batch.size(-1))
+        contrast = contrast.cuda()
+
+        # Create random brightness tensor
+        brightness = torch.cuda.FloatTensor(batch_size).uniform_(self.min_brightness, self.max_brightness)
+        brightness = brightness.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        brightness = brightness.expand(-1, -1, adv_batch.size(-3), adv_batch.size(-2), adv_batch.size(-1))
+        brightness = brightness.cuda()
+
+        # Create random noise tensor
+        noise = torch.cuda.FloatTensor(adv_batch.size()).uniform_(-1, 1) * self.noise_factor
+
+        # Apply contrast/brightness/noise, clamp
+        adv_batch = adv_batch * contrast + brightness + noise
+
+        adv_batch = torch.clamp(adv_batch, 0.000001, 0.99999)
+
+        # Where the label class_id is 1 we don't want a patch (padding) --> fill mask with zero's
+        cls_ids = torch.narrow(lab_batch, 2, 0, 1)
+        cls_mask = cls_ids.expand(-1, -1, 3)
+        cls_mask = cls_mask.unsqueeze(-1)
+        cls_mask = cls_mask.expand(-1, -1, -1, adv_batch.size(3))
+        cls_mask = cls_mask.unsqueeze(-1)
+        cls_mask = cls_mask.expand(-1, -1, -1, -1, adv_batch.size(4))
+        msk_batch = torch.cuda.FloatTensor(cls_mask.size()).fill_(1) - cls_mask
+
+        # print(adv_batch.size())
+        adv_patch_torso = torch.narrow(adv_batch, 4, 50, 200)
+        adv_patch_torso = F.interpolate(adv_patch_torso, size=(3, img_size, img_size))
+
+        # adv_patch_boven_arm_l = torch.narrow(adv_batch, 3, 0, 50)
+        # adv_patch_boven_arm_l = torch.narrow(adv_patch_boven_arm_l, 4, 0, 150)
+        # adv_patch_boven_arm_l = F.interpolate(adv_patch_boven_arm_l, size=(3, img_size, img_size))
+
+        msk_batch = F.interpolate(msk_batch, size=(3, img_size, img_size))
+
+        # Resizes and rotates
+        current_patch_size = adv_patch.size(-1)
+        # Torso gedeelte
+
+        # lab_batch[:, :, 38] = torch.where(lab_batch[:, :, 38] == 0, torch.abs(lab_batch[:, :, 19] - lab_batch[:, :, 16])*1.7+1, lab_batch[:, :, 38])
+        target_size_x = torch.abs(lab_batch[:, :, 16] - lab_batch[:, :, 19])+1
+        target_size_x *= self.patch_scale
+
+        target_size_y = torch.abs(lab_batch[:, :, 17] - lab_batch[:, :, 35])+1
+        target_size_y *= self.patch_scale
+
+        scale_x = target_size_x / current_patch_size
+        scale_y = target_size_y / current_patch_size
+
+        target_x = ((torch.min(lab_batch[:, :, 16], lab_batch[:, :, 19])+target_size_x*1.15/2)/img_size).view(np.prod(batch_size))
+        target_y = ((torch.min(lab_batch[:, :, 17], lab_batch[:, :, 20])+target_size_y*1.15/2)/img_size).view(np.prod(batch_size))
+        # print("TX", target_x)
+        # print("TY", target_y)
+
+        s = adv_patch_torso.size()
+        adv_patch_torso = adv_patch_torso.view(s[0] * s[1], s[2], s[3], s[4])
+        msk_batch = msk_batch.view(s[0] * s[1], s[2], s[3], s[4])
+
+        # img = msk_batch.view(s[0], s[1], s[2], s[3], s[4])[0, 0, :, :, :].detach().cpu()
+        # im = transforms.ToPILImage('RGB')(img)
+        # plt.figure(200)
+        # plt.imshow(im)
+        # plt.show()
+        # exit()
+
+        # Rotation and rescaling transforms
+        anglesize = (lab_batch.size(0) * lab_batch.size(1))
+
+        # angle = torch.cuda.FloatTensor(anglesize).fill_(-90 / 180 * math.pi)
+        angle = torch.cuda.FloatTensor(anglesize).fill_(0)
+
+        scale_x = scale_x.view(anglesize)
+        scale_y = scale_y.view(anglesize)
+
+        tx = (-target_x +0.5)*2
+        ty = (-target_y +0.5)*2
+
+        sin = torch.sin(angle)
+        cos = torch.cos(angle)
+
+        # Theta = rotation,rescale matrix
+        theta = torch.cuda.FloatTensor(anglesize, 2, 3).fill_(0)
+        theta[:, 0, 0] = cos/scale_x
+        theta[:, 0, 1] = sin/scale_y
+        theta[:, 0, 2] = tx*cos/scale_x+ty*sin/scale_y
+        theta[:, 1, 0] = -sin/scale_x
+        theta[:, 1, 1] = cos/scale_y
+        theta[:, 1, 2] = -tx*sin/scale_x+ty*cos/scale_y
+
+        grid = F.affine_grid(theta, adv_patch_torso.shape)
+
+        adv_batch_torso = F.grid_sample(adv_patch_torso, grid)
+        msk_batch_torso = F.grid_sample(msk_batch, grid)
+
+        adv_batch_torso = adv_batch_torso.view(s[0], s[1], s[2], s[3], s[4])
+        msk_batch_torso = msk_batch_torso.view(s[0], s[1], s[2], s[3], s[4])
+
+        adv_batch_torso = torch.clamp(adv_batch_torso, 0.000001, 0.999999)
+        # img = msk_batch_t[0, 0, :, :, :].detach().cpu()
+        # im = transforms.ToPILImage('RGB')(img)
+        # plt.figure(200)
+        # plt.imshow(im)
+        # plt.show()
+        # exit()
+
+        return adv_batch_torso * msk_batch_torso
+
+
 class PatchTransformer(nn.Module):
     """PatchTransformer: transforms batch of patches
 
@@ -307,7 +442,7 @@ class PatchTransformer(nn.Module):
         self.minangle = -20 / 180 * math.pi
         self.maxangle = 20 / 180 * math.pi
         self.medianpooler = MedianPool2d(7,same=True)
-        self.patch_scale = 2
+        self.patch_scale = 1.5
         '''
         kernel = torch.cuda.FloatTensor([[0.003765, 0.015019, 0.023792, 0.015019, 0.003765],
                                          [0.015019, 0.059912, 0.094907, 0.059912, 0.015019],
@@ -360,6 +495,13 @@ class PatchTransformer(nn.Module):
         cls_mask = cls_mask.expand(-1, -1, -1, -1, adv_batch.size(4))
         msk_batch = torch.cuda.FloatTensor(cls_mask.size()).fill_(1) - cls_mask
 
+        print(cls_ids)
+
+        s = adv_batch.size()
+        img = msk_batch.view(s[0], s[1], s[2], s[3], s[4])[0, 0, :, :, :].detach().cpu()
+        img = transforms.ToPILImage()(img)
+        img.show()
+
         # Pad patch and mask to image dimensions
         mypad = nn.ConstantPad2d((int(pad + 0.5), int(pad), int(pad + 0.5), int(pad)), 0)
         adv_batch = mypad(adv_batch)
@@ -381,6 +523,7 @@ class PatchTransformer(nn.Module):
         lab_batch_scaled[:, :, 3] = lab_batch[:, :, 3] * img_size
         lab_batch_scaled[:, :, 4] = lab_batch[:, :, 4] * img_size
         target_size = torch.sqrt(((lab_batch_scaled[:, :, 3].mul(0.2)) ** 2) + ((lab_batch_scaled[:, :, 4].mul(0.2)) ** 2))
+        # print("1", target_size)
         target_size *= self.patch_scale
         target_x = lab_batch[:, :, 1].view(np.prod(batch_size))
         target_y = lab_batch[:, :, 2].view(np.prod(batch_size))
@@ -394,14 +537,24 @@ class PatchTransformer(nn.Module):
         target_y = target_y - 0.05
         scale = target_size / current_patch_size
         scale = scale.view(anglesize)
+        # print("2", target_size)
+        print("1", target_x)
+        print("2", target_y)
 
         s = adv_batch.size()
         adv_batch = adv_batch.view(s[0] * s[1], s[2], s[3], s[4])
         msk_batch = msk_batch.view(s[0] * s[1], s[2], s[3], s[4])
 
+        img = msk_batch.view(s[0], s[1], s[2], s[3], s[4])[0, 0, :, :, :].detach().cpu()
+        img = transforms.ToPILImage()(img)
+        img.show()
 
         tx = (-target_x+0.5)*2
         ty = (-target_y+0.5)*2
+
+        print("TX", tx)
+        print("TY", ty)
+
         sin = torch.sin(angle)
         cos = torch.cos(angle)
 
@@ -409,10 +562,10 @@ class PatchTransformer(nn.Module):
         theta = torch.cuda.FloatTensor(anglesize, 2, 3).fill_(0)
         theta[:, 0, 0] = cos/scale
         theta[:, 0, 1] = sin/scale
-        theta[:, 0, 2] = tx*cos/scale+ty*sin/scale
+        theta[:, 0, 2] = tx*cos/scale+sin/scale
         theta[:, 1, 0] = -sin/scale
         theta[:, 1, 1] = cos/scale
-        theta[:, 1, 2] = -tx*sin/scale+ty*cos/scale
+        theta[:, 1, 2] = -ty*sin/scale+cos/scale
 
         b_sh = adv_batch.shape
         grid = F.affine_grid(theta, adv_batch.shape)
@@ -440,10 +593,10 @@ class PatchTransformer(nn.Module):
         msk_batch_t = msk_batch_t.view(s[0], s[1], s[2], s[3], s[4])
 
         adv_batch_t = torch.clamp(adv_batch_t, 0.000001, 0.999999)
-        #img = msk_batch_t[0, 0, :, :, :].detach().cpu()
-        #img = transforms.ToPILImage()(img)
-        #img.show()
-        #exit()
+        img = msk_batch_t[0, 0, :, :, :].detach().cpu()
+        img = transforms.ToPILImage()(img)
+        img.show()
+        exit()
 
         return adv_batch_t * msk_batch_t
 
@@ -514,7 +667,7 @@ class CocoKeypointDataset(Dataset):
         annIds = coco.getAnnIds(imgIds=img_info['id'])
         anns = coco.loadAnns(annIds)
         # We geven enkel het keypoint gedeelte verder door
-        anns = self.pad(list(x['keypoints'] for x in anns))
+        anns = self.pad(anns)
         # We herschalen de afbeelding en annotations naar de img_size van yolo
         image, anns = self.rescale(image, anns)
         transform = transforms.ToTensor()
@@ -541,7 +694,7 @@ class CocoKeypointDataset(Dataset):
                 padded_img.paste(img)
 
         for i in range (self.maxlab):
-            for j in range (0, 51, 3):
+            for j in range (1, 52, 3):
                 if w > h:
                     anns[i][j] = anns[i][j]*self.imgsize/w
                     anns[i][j+1] = anns[i][j+1]*self.imgsize/w
@@ -553,18 +706,23 @@ class CocoKeypointDataset(Dataset):
         padded_img = resize(padded_img)
         return padded_img, anns
 
-    def pad(self, anns):
+    def pad(self, anns_list):
+        keypoint_anns = []
+        for x in anns_list:
+            # print(x['keypoints'])
+            if x['keypoints'][17] > 0 and x['keypoints'][20] > 0:
+                keypoint_anns.append(list([0] + x['keypoints']))
         # Hier worden de annotations bijgevuld zodat elke afbeelding er evenveel heeft
-        pad_size = self.maxlab - len(anns)
+        pad_size = self.maxlab - len(keypoint_anns)
         if(pad_size>0):
-            padded_lab = anns
+            padded_lab = keypoint_anns
             for i in range(pad_size):
-                padded_lab.append([0] * 51)
+                padded_lab.append([1]+[0] * 51)
         else:
             if(pad_size < 0):
-                padded_lab = anns[:self.maxlab]
+                padded_lab = keypoint_anns[:self.maxlab]
             else:
-                padded_lab = anns
+                padded_lab = keypoint_anns
         return padded_lab
 
 

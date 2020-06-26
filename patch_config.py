@@ -10,10 +10,10 @@ class BaseConfig(object):
         """
         Set the defaults.
         """
-        # self.img_dir = "coco/images/val2017"
-        # self.lab_dir = "coco/annotations/person_keypoints_val2017.json"
-        self.img_dir = "inria/Train/pos"
-        self.lab_dir = "inria/Train/pos/yolo-labels"
+        self.img_dir = "coco/images/val2017"
+        self.lab_dir = "coco/annotations/person_keypoints_val2017.json"
+        # self.img_dir = "inria/Train/pos"
+        # self.lab_dir = "inria/Train/pos/yolo-labels"
 
         self.cfgfile = "cfg/yolo.cfg"
         self.weightfile = "weights/yolo.weights"
@@ -104,7 +104,7 @@ class Experiment1Desktop(Experiment1):
         """
         super().__init__()
 
-        self.batch_size = 6
+        self.batch_size = 5
         self.patch_size = 300
 
         self.patch_name = 'PersonToCat'

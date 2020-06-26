@@ -30,10 +30,10 @@ class PatchTrainer(object):
         self.darknet_model.load_weights(self.config.weightfile)
         self.darknet_model = self.darknet_model.eval().cuda() # TODO: Why eval?
         self.patch_applier = PatchApplier().cuda()
-        self.patch_transformer = PatchTransformer().cuda()
-        # self.patch_transformer = PatchTransformerKeypoints().cuda()
+        # self.patch_transformer = PatchTransformer().cuda()
+        self.patch_transformer = PatchTransformerKeypointsTensors().cuda()
         self.prob_extractor = MaxProbExtractor(0, 80, self.config).cuda()
-        self.prob_extractor_class = MaxProbExtractor(22, 80, self.config).cuda()
+        self.prob_extractor_class = MaxProbExtractor(15, 80, self.config).cuda()
         self.nps_calculator = NPSCalculator(self.config.printfile, self.config.patch_size).cuda()
         self.total_variation = TotalVariation().cuda()
 
@@ -60,33 +60,33 @@ class PatchTrainer(object):
 
         time_str = time.strftime("%Y%m%d-%H%M%S")
 
-        # Generate stating point
+        # Generate starting point
         adv_patch_cpu = self.generate_patch("gray")
         #adv_patch_cpu = self.read_image("@PJ_PATCHES/patch_scale1_5.jpg")
 
         adv_patch_cpu.requires_grad_(True)
 
-        train_loader = torch.utils.data.DataLoader(InriaDataset(self.config.img_dir, self.config.lab_dir, max_lab, img_size,
-                                                                shuffle=True),
-                                                   batch_size=batch_size,
-                                                   shuffle=True,
-                                                   num_workers=10)
+        # train_loader = torch.utils.data.DataLoader(InriaDataset(self.config.img_dir, self.config.lab_dir, max_lab, img_size,
+        #                                                         shuffle=True),
+        #                                            batch_size=batch_size,
+        #                                            shuffle=True,
+        #                                            num_workers=10)
 
-        # train_loader = torch.utils.data.DataLoader(CocoKeypointDataset(self.config.img_dir, self.config.lab_dir, img_size, max_lab),
-        #                                             batch_size=batch_size,
-        #                                             shuffle=True,
-        #                                             num_workers=10)
+        train_loader = torch.utils.data.DataLoader(CocoKeypointDataset(self.config.img_dir, self.config.lab_dir, img_size, max_lab),
+                                                    batch_size=batch_size,
+                                                    shuffle=True,
+                                                    num_workers=10)
         self.epoch_length = len(train_loader)
         print(f'One epoch is {len(train_loader)}')
 
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
 
-        aant_show = 3
-        tellerke = 0
+        aant_show = 10
 
         et0 = time.time()
         for epoch in range(n_epochs):
+            tellerke = 0
             ep_det_loss = 0
             ep_nps_loss = 0
             ep_tv_loss = 0
@@ -96,21 +96,36 @@ class PatchTrainer(object):
             for i_batch, (img_batch, lab_batch) in tqdm(enumerate(train_loader), desc=f'Running epoch {epoch}',
                                                         total=self.epoch_length):
                 with autograd.detect_anomaly():
+                    # print(lab_batch[1, :])
+                    # img = img_batch[0, :, :,]
+                    # im = transforms.ToPILImage('RGB')(img)
+                    # plt.figure(300)
+                    # plt.imshow(im)
+                    # exit()
+
                     img_batch = img_batch.cuda()
                     lab_batch = torch.FloatTensor(lab_batch).cuda()
 
                     #print('TRAINING EPOCH %i, BATCH %i'%(epoch, i_batch))
                     adv_patch = adv_patch_cpu.cuda()
-                    adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size, do_rotate=True, rand_loc=False)
-                    # adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size)
+                    # adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size, do_rotate=True, rand_loc=False)
+                    adv_batch_t = self.patch_transformer(adv_patch, lab_batch, img_size)
                     p_img_batch = self.patch_applier(img_batch, adv_batch_t)
                     p_img_batch = F.interpolate(p_img_batch, (self.darknet_model.height, self.darknet_model.width))
 
-                    img = p_img_batch[1, :, :,]
+                    # print(lab_batch[1, :])
+                    # img = p_img_batch[0, :, :,]
+                    # im = transforms.ToPILImage('RGB')(img.detach().cpu())
+                    # plt.figure(400)
+                    # plt.imshow(im)
+                    # plt.show()
+                    # exit()
+
+                    img = p_img_batch[0, :, :,]
                     img = transforms.ToPILImage()(img.detach().cpu())
 
                     if(tellerke < aant_show):
-                        img.save(f"@PJ_PATCHES/patch_scale1_5_persons{tellerke}.png")
+                        img.save(f"@PJ_PATCHES/test_tensor{tellerke}.png")
                         tellerke += 1
 
                     output = self.darknet_model(p_img_batch)
