@@ -10,3 +10,5 @@ persons/
 .ipynb_checkpoints/
 saved_patches/
 test/
+testing_coco/
+*.json

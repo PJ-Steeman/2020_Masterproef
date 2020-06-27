@@ -9,7 +9,7 @@ COCOParser_clean = bbb.io.parser.detection.CocoParser(class_label_map={0: 'perso
 COCOParser_noise = bbb.io.parser.detection.CocoParser(class_label_map={0: 'person'})
 COCOParser_patch = bbb.io.parser.detection.CocoParser(class_label_map={0: 'person'})
 
-annotations = bbb.io.load(darknetParser, 'testing/clean/yolo-labels/')
+annotations = bbb.io.load(darknetParser, 'testing_coco/clean/yolo-labels/')
 
 clean_results = bbb.io.load(COCOParser_clean, 'clean_results.json')
 noise_results = bbb.io.load(COCOParser_noise, 'noise_results.json')
@@ -24,8 +24,8 @@ clean_ap = bbb.stat.ap(clean)
 noise_ap = bbb.stat.ap(noise)
 patch_ap = bbb.stat.ap(patch)
 
-# plt.plot(clean['recall'], clean['precision'], label='CLEAN')
-# plt.plot(noise['recall'], noise['precision'], label=f'NOISE: AP: {round(noise_ap*100, 2)}%')
+plt.plot(clean['recall'], clean['precision'], label='CLEAN')
+plt.plot(noise['recall'], noise['precision'], label=f'NOISE: AP: {round(noise_ap*100, 2)}%')
 plt.plot(patch['recall'], patch['precision'], label=f'PATCH: AP: {round(patch_ap*100, 2)}%')
 
 plt.gcf().suptitle('PR-curve')

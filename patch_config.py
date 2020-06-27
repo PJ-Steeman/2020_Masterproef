@@ -30,6 +30,7 @@ class BaseConfig(object):
         self.batch_size = 20
 
         self.loss_target = lambda obj, cls: obj * cls
+        self.wanted_class = None
 
 
 class Experiment1(BaseConfig):
@@ -104,10 +105,13 @@ class Experiment1Desktop(Experiment1):
         """
         super().__init__()
 
-        self.batch_size = 5
-        self.patch_size = 300
+        self.batch_size = 4
+        self.patch_size = 400
+
+        self.start_learning_rate = 0.03
 
         self.patch_name = 'PersonToCat'
+        self.wanted_class = 15
         self.max_tv = 0.165
 
         self.loss_target = lambda obj, cls: cls

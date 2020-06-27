@@ -33,7 +33,8 @@ class PatchTrainer(object):
         # self.patch_transformer = PatchTransformer().cuda()
         self.patch_transformer = PatchTransformerKeypointsTensors().cuda()
         self.prob_extractor = MaxProbExtractor(0, 80, self.config).cuda()
-        self.prob_extractor_class = MaxProbExtractor(15, 80, self.config).cuda()
+        if self.config.wanted_class is not None:
+            self.prob_extractor_class = MaxProbExtractor(self.config.wanted_class, 80, self.config).cuda()
         self.nps_calculator = NPSCalculator(self.config.printfile, self.config.patch_size).cuda()
         self.total_variation = TotalVariation().cuda()
 
@@ -90,7 +91,8 @@ class PatchTrainer(object):
             ep_det_loss = 0
             ep_nps_loss = 0
             ep_tv_loss = 0
-            ep_class_loss = 0
+            if self.config.wanted_class is not None:
+                ep_class_loss = 0
             ep_loss = 0
             bt0 = time.time()
             for i_batch, (img_batch, lab_batch) in tqdm(enumerate(train_loader), desc=f'Running epoch {epoch}',
@@ -130,20 +132,24 @@ class PatchTrainer(object):
 
                     output = self.darknet_model(p_img_batch)
                     max_prob = self.prob_extractor(output)
-                    class_prob = self.prob_extractor_class(output)
+                    if self.config.wanted_class is not None:
+                        class_prob = self.prob_extractor_class(output)
                     nps = self.nps_calculator(adv_patch)
                     tv = self.total_variation(adv_patch)
 
                     nps_loss = nps*0.005
                     tv_loss = tv*0.75
                     det_loss = torch.mean(max_prob)
-                    class_loss = (1-torch.mean(class_prob))*0.5
-                    loss = det_loss + nps_loss + torch.max(tv_loss, torch.tensor(0.1).cuda()) + class_loss
+                    loss = det_loss + nps_loss + torch.max(tv_loss, torch.tensor(0.1).cuda())
+                    if self.config.wanted_class is not None:
+                        class_loss = (1-torch.mean(class_prob))*0.5
+                        loss += class_loss
 
                     ep_det_loss += det_loss.detach().cpu().numpy()
                     ep_nps_loss += nps_loss.detach().cpu().numpy()
                     ep_tv_loss += tv_loss.detach().cpu().numpy()
-                    ep_class_loss += class_loss.detach().cpu().numpy()
+                    if self.config.wanted_class is not None:
+                        ep_class_loss += class_loss.detach().cpu().numpy()
                     ep_loss += loss
 
                     loss.backward()
@@ -159,7 +165,8 @@ class PatchTrainer(object):
                         self.writer.add_scalar('loss/det_loss', det_loss.detach().cpu().numpy(), iteration)
                         self.writer.add_scalar('loss/nps_loss', nps_loss.detach().cpu().numpy(), iteration)
                         self.writer.add_scalar('loss/tv_loss', tv_loss.detach().cpu().numpy(), iteration)
-                        self.writer.add_scalar('loss/class_loss', class_loss.detach().cpu().numpy(), iteration)
+                        if self.config.wanted_class is not None:
+                            self.writer.add_scalar('loss/class_loss', class_loss.detach().cpu().numpy(), iteration)
                         self.writer.add_scalar('misc/epoch', epoch, iteration)
                         self.writer.add_scalar('misc/learning_rate', optimizer.param_groups[0]["lr"], iteration)
 
@@ -167,7 +174,9 @@ class PatchTrainer(object):
                     if i_batch + 1 >= len(train_loader):
                         print('\n')
                     else:
-                        del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss, class_loss
+                        del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss
+                        if self.config.wanted_class is not None:
+                            del class_loss
                         torch.cuda.empty_cache()
                     bt0 = time.time()
 
@@ -179,7 +188,8 @@ class PatchTrainer(object):
             ep_det_loss = ep_det_loss/len(train_loader)
             ep_nps_loss = ep_nps_loss/len(train_loader)
             ep_tv_loss = ep_tv_loss/len(train_loader)
-            ep_class_loss = ep_class_loss/len(train_loader)
+            if self.config.wanted_class is not None:
+                ep_class_loss = ep_class_loss/len(train_loader)
             ep_loss = ep_loss/len(train_loader)
 
             #im = transforms.ToPILImage('RGB')(adv_patch_cpu)
@@ -193,13 +203,16 @@ class PatchTrainer(object):
                 print('  DET LOSS: ', ep_det_loss)
                 print('  NPS LOSS: ', ep_nps_loss)
                 print('   TV LOSS: ', ep_tv_loss)
-                print('CLASS LOSS: ', ep_class_loss)
+                if self.config.wanted_class is not None:
+                    print('CLASS LOSS: ', ep_class_loss)
                 print('EPOCH TIME: ', et1-et0)
                 im = transforms.ToPILImage('RGB')(adv_patch_cpu)
                 #plt.imshow(im)
                 #plt.show()
                 im.save("@PJ_PATCHES/final_cat_1s.jpg")
-                del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss, class_loss
+                del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss
+                if self.config.wanted_class is not None:
+                    del class_loss
                 torch.cuda.empty_cache()
             et0 = time.time()
 
