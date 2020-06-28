@@ -301,29 +301,28 @@ class PatchTransformerKeypointsTensors(nn.Module):
         self.patch_scale = 1
 
     def forward(self, adv_patch, lab_batch, img_size):
+
         adv_patch = self.medianpooler(adv_patch.unsqueeze(0))
         adv_patch = adv_patch.unsqueeze(0)
         patch_size = adv_patch.size(3)
-        # pad = (img_size - adv_patch.size(-1)) / 2
 
         # Maak een tensor de grootte van de lab_batch size, hierin komen de patches
-        # adv_batch = torch.cuda.FloatTensor(lab_batch.size(0), lab_batch.size(1), 3, img_size, img_size).fill_(0)
         adv_batch = adv_patch.expand(lab_batch.size(0), lab_batch.size(1), -1, -1, -1)
         batch_size = torch.Size((lab_batch.size(0), lab_batch.size(1)))
 
-        # Create random contrast tensor
+        # Random contrast
         contrast = torch.cuda.FloatTensor(batch_size).uniform_(self.min_contrast, self.max_contrast)
         contrast = contrast.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
         contrast = contrast.expand(-1, -1, adv_batch.size(-3), adv_batch.size(-2), adv_batch.size(-1))
         contrast = contrast.cuda()
 
-        # Create random brightness tensor
+        # Random helderheid
         brightness = torch.cuda.FloatTensor(batch_size).uniform_(self.min_brightness, self.max_brightness)
         brightness = brightness.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
         brightness = brightness.expand(-1, -1, adv_batch.size(-3), adv_batch.size(-2), adv_batch.size(-1))
         brightness = brightness.cuda()
 
-        # Create random noise tensor
+        # Random ruis
         noise = torch.cuda.FloatTensor(adv_batch.size()).uniform_(-1, 1) * self.noise_factor
 
         # Apply contrast/brightness/noise, clamp
@@ -331,7 +330,7 @@ class PatchTransformerKeypointsTensors(nn.Module):
 
         adv_batch = torch.clamp(adv_batch, 0.000001, 0.99999)
 
-        # Where the label class_id is 1 we don't want a patch (padding) --> fill mask with zero's
+        # Als er niks gedetecteerd wordt -> masker vol nullen
         cls_ids = torch.narrow(lab_batch, 2, 0, 1)
         cls_mask = cls_ids.expand(-1, -1, 3)
         cls_mask = cls_mask.unsqueeze(-1)
@@ -340,35 +339,53 @@ class PatchTransformerKeypointsTensors(nn.Module):
         cls_mask = cls_mask.expand(-1, -1, -1, -1, adv_batch.size(4))
         msk_batch = torch.cuda.FloatTensor(cls_mask.size()).fill_(1) - cls_mask
 
-        # print(adv_batch.size())
+        # Torso patch uitknippen
         adv_patch_torso = torch.narrow(adv_batch, 4, int(patch_size/5), int(3*patch_size/5))
         adv_patch_torso = F.interpolate(adv_patch_torso, size=(3, img_size, img_size))
 
+        # Linker bovenarm uitkinppen
         adv_patch_boven_arm_l = torch.narrow(adv_batch, 4, 0, int(patch_size/5))
         adv_patch_boven_arm_l = torch.narrow(adv_patch_boven_arm_l, 3, 0, int(patch_size/2))
         adv_patch_boven_arm_l = F.interpolate(adv_patch_boven_arm_l, size=(3, img_size, img_size))
 
+        # Rechter bovernarm uitknippen
         adv_patch_boven_arm_r = torch.narrow(adv_batch, 4, int(4*patch_size/5), int(patch_size/5))
         adv_patch_boven_arm_r = torch.narrow(adv_patch_boven_arm_r, 3, 0, int(patch_size/2))
         adv_patch_boven_arm_r = F.interpolate(adv_patch_boven_arm_r, size=(3, img_size, img_size))
 
+        # Linker onderarm uitknippen
+        adv_patch_onder_arm_l = torch.narrow(adv_batch, 4, 0, int(patch_size/5))
+        adv_patch_onder_arm_l = torch.narrow(adv_patch_onder_arm_l, 3, int(patch_size/2), int(patch_size/2))
+        adv_patch_onder_arm_l = F.interpolate(adv_patch_onder_arm_l, size=(3, img_size, img_size))
+
+        # Rechter onderarm uitknippen
+        adv_patch_onder_arm_r = torch.narrow(adv_batch, 4, int(4*patch_size/5), int(patch_size/5))
+        adv_patch_onder_arm_r = torch.narrow(adv_patch_onder_arm_r, 3, int(patch_size/2), int(patch_size/2))
+        adv_patch_onder_arm_r = F.interpolate(adv_patch_onder_arm_r, size=(3, img_size, img_size))
+
         msk_batch = F.interpolate(msk_batch, size=(3, img_size, img_size))
 
-        # Resizes and rotates
         current_patch_size = adv_patch.size(-1)
 
         # Torso gedeelte
+        # Als de onderkant niet zichtbaar is schatten waar deze zou zijn
         lab_batch[:, :, 20] = torch.where(lab_batch[:, :, 20] == 0, torch.abs(lab_batch[:, :, 19] - lab_batch[:, :, 16])*1.7+1, lab_batch[:, :, 20])
 
+        # Torso breedte
         target_size_x = torch.abs(lab_batch[:, :, 16] - lab_batch[:, :, 19])+1
         target_size_x *= self.patch_scale
 
+        # Torse lengte
         target_size_y = torch.abs(lab_batch[:, :, 17] - lab_batch[:, :, 35])+1
         target_size_y *= self.patch_scale*0.85
+
+        # Bij mensen in zijaanzicht de patch iets breeder plaatsen
+        target_size_x = torch.where(target_size_y > 2*target_size_x, target_size_y/2, target_size_x)
 
         scale_x = target_size_x / current_patch_size
         scale_y = target_size_y / current_patch_size
 
+        # Plaats locaties
         target_x = ((torch.min(lab_batch[:, :, 16], lab_batch[:, :, 19])+target_size_x*1.15/2)/img_size).view(np.prod(batch_size))
         target_y = ((torch.min(lab_batch[:, :, 17], lab_batch[:, :, 20])+target_size_y*1.15/2)/img_size).view(np.prod(batch_size))
 
@@ -383,12 +400,13 @@ class PatchTransformerKeypointsTensors(nn.Module):
         # plt.show()
         # exit()
 
-        # Rotation and rescaling transforms
         anglesize = (lab_batch.size(0) * lab_batch.size(1))
 
         # angle = torch.cuda.FloatTensor(anglesize).fill_(-90 / 180 * math.pi)
+        # Hoek van 0 graden (vanuitgaand dat mensen +- recht zitten/staan)
         angle = torch.cuda.FloatTensor(anglesize).fill_(0)
 
+        # Vervormingen toepassen aan de hand van een affine grid
         scale_x = scale_x.view(anglesize)
         scale_y = scale_y.view(anglesize)
 
@@ -411,131 +429,41 @@ class PatchTransformerKeypointsTensors(nn.Module):
         adv_batch_torso = F.grid_sample(adv_patch_torso, grid)
         msk_batch_torso = F.grid_sample(msk_batch, grid)
 
+        # De verschillende arm patches bepalen op ongeveer dezelfde manier als het torso
+        # Armen hebben maar 2 punten -> dikte geschat
+        arm_width = torch.abs(lab_batch[:, :, 16] - lab_batch[:, :, 19])/2.5+1
+        arm_l_top = lab_batch.narrow(2, 16, 2)
+        arm_l_bottom = lab_batch.narrow(2, 22, 2)
 
-        # Linker bovenarm
-        target_size_x = torch.abs(lab_batch[:, :, 16] - lab_batch[:, :, 19])/2.5+1
-        target_size_x *= self.patch_scale
+        adv_patch_boven_arm_l, msk_batch_boven_arm_l = self.arm_forward(adv_patch_boven_arm_l, img_size, arm_width, arm_l_top, arm_l_bottom, anglesize, msk_batch, current_patch_size, batch_size)
 
-        target_size_y = torch.sqrt((lab_batch[:, :, 16] - lab_batch[:, :, 22])**2 + (lab_batch[:, :, 17] - lab_batch[:, :, 23])**2)+1
-        target_size_y *= self.patch_scale*0.85
+        arm_r_top = lab_batch.narrow(2, 19, 2)
+        arm_r_bottom = lab_batch.narrow(2, 25, 2)
 
-        # print("SX", target_size_x)
-        # print("SY", target_size_y)
+        adv_patch_boven_arm_r, msk_batch_boven_arm_r = self.arm_forward(adv_patch_boven_arm_r, img_size, arm_width, arm_r_top, arm_r_bottom, anglesize, msk_batch, current_patch_size, batch_size)
 
-        scale_x = target_size_x / current_patch_size
-        scale_y = target_size_y / current_patch_size
+        arm_l_top = lab_batch.narrow(2, 22, 2)
+        arm_l_bottom = lab_batch.narrow(2, 28, 2)
 
-        target_x = (((lab_batch[:, :, 16] + lab_batch[:, :, 22])/2)/img_size).view(np.prod(batch_size))
-        target_y = (((lab_batch[:, :, 17] + lab_batch[:, :, 23])/2)/img_size).view(np.prod(batch_size))
+        adv_patch_onder_arm_l, msk_batch_onder_arm_l = self.arm_forward(adv_patch_onder_arm_l, img_size, arm_width, arm_l_top, arm_l_bottom, anglesize, msk_batch, current_patch_size, batch_size)
 
-        # print("LB", lab_batch[0:0,:])
-        #
-        # print("TX", target_x)
-        # print("TY", target_y)
+        arm_r_top = lab_batch.narrow(2, 25, 2)
+        arm_r_bottom = lab_batch.narrow(2, 31, 2)
 
-        s = adv_patch_boven_arm_l.size()
-        adv_patch_boven_arm_l = adv_patch_boven_arm_l.view(s[0] * s[1], s[2], s[3], s[4])
+        adv_patch_onder_arm_r, msk_batch_onder_arm_r = self.arm_forward(adv_patch_onder_arm_r, img_size, arm_width, arm_r_top, arm_r_bottom, anglesize, msk_batch, current_patch_size, batch_size)
 
-        # Rotation and rescaling transforms
-        anglesize = (lab_batch.size(0) * lab_batch.size(1))
-
-        angle_degrees = (torch.tan((lab_batch[:, :, 16] - lab_batch[:, :, 22])/(lab_batch[:, :, 17] - lab_batch[:, :, 23]))*57.2958)
-        angle_90 = torch.cuda.FloatTensor(angle_degrees.size(0) * angle_degrees.size(1)).fill_(90)
-        angle_degrees = angle_degrees.view(angle_degrees.size(0) * angle_degrees.size(1))
-        angle_degrees = torch.where(torch.isnan(angle_degrees), angle_90, angle_degrees)
-
-        # angle = torch.cuda.FloatTensor(anglesize).fill_(45)
-        # print("ANGLE", angle_degrees[0])
-
-        scale_x = scale_x.view(anglesize)
-        scale_y = scale_y.view(anglesize)
-
-        tx = (-target_x +0.5)*2
-        ty = (-target_y +0.5)*2
-
-        sin = torch.sin(angle_degrees)
-        cos = torch.cos(angle_degrees)
-
-        theta[:, 0, 0] = cos/scale_x
-        theta[:, 0, 1] = sin/scale_y
-        theta[:, 0, 2] = tx*cos/scale_x+ty*sin/scale_y
-        theta[:, 1, 0] = -sin/scale_x
-        theta[:, 1, 1] = cos/scale_y
-        theta[:, 1, 2] = -tx*sin/scale_x+ty*cos/scale_y
-
-        grid = F.affine_grid(theta, adv_patch_boven_arm_l.shape)
-
-        adv_patch_boven_arm_l = F.grid_sample(adv_patch_boven_arm_l, grid)
-        msk_batch_boven_arm_l = F.grid_sample(msk_batch, grid)
-
-        # img = msk_batch_boven_arm_l.view(s[0], s[1], s[2], s[3], s[4])[0, 0, :, :, :].detach().cpu()
-        # im = transforms.ToPILImage('RGB')(img)
-        # plt.figure(200)
-        # plt.imshow(im)
-        # plt.show()
-        # exit()
-
-        # Rechter bovenarm
-        target_size_x = torch.abs(lab_batch[:, :, 16] - lab_batch[:, :, 19])/2.5+1
-        target_size_x *= self.patch_scale
-
-        target_size_y = torch.sqrt((lab_batch[:, :, 19] - lab_batch[:, :, 25])**2 + (lab_batch[:, :, 20] - lab_batch[:, :, 26])**2)+1
-        target_size_y *= self.patch_scale*0.85
-
-        # print("SX", target_size_x)
-        # print("SY", target_size_y)
-
-        scale_x = target_size_x / current_patch_size
-        scale_y = target_size_y / current_patch_size
-
-        target_x = (((lab_batch[:, :, 19] + lab_batch[:, :, 25])/2)/img_size).view(np.prod(batch_size))
-        target_y = (((lab_batch[:, :, 20] + lab_batch[:, :, 26])/2)/img_size).view(np.prod(batch_size))
-
-        # print("LB", lab_batch[0:0,:])
-        #
-        # print("TX", target_x)
-        # print("TY", target_y)
-
-        s = adv_patch_boven_arm_r.size()
-        adv_patch_boven_arm_r = adv_patch_boven_arm_r.view(s[0] * s[1], s[2], s[3], s[4])
-
-        # Rotation and rescaling transforms
-        anglesize = (lab_batch.size(0) * lab_batch.size(1))
-
-        angle_degrees = (torch.tan((lab_batch[:, :, 19] - lab_batch[:, :, 25])/(lab_batch[:, :, 20] - lab_batch[:, :, 26]))*57.2958)
-        angle_90 = torch.cuda.FloatTensor(angle_degrees.size(0) * angle_degrees.size(1)).fill_(90)
-        angle_degrees = angle_degrees.view(angle_degrees.size(0) * angle_degrees.size(1))
-        angle_degrees = torch.where(torch.isnan(angle_degrees), angle_90, angle_degrees)
-
-        # angle = torch.cuda.FloatTensor(anglesize).fill_(45)
-        # print("ANGLE", angle_degrees[0])
-
-        scale_x = scale_x.view(anglesize)
-        scale_y = scale_y.view(anglesize)
-
-        tx = (-target_x +0.5)*2
-        ty = (-target_y +0.5)*2
-
-        sin = torch.sin(angle_degrees)
-        cos = torch.cos(angle_degrees)
-
-        theta[:, 0, 0] = cos/scale_x
-        theta[:, 0, 1] = sin/scale_y
-        theta[:, 0, 2] = tx*cos/scale_x+ty*sin/scale_y
-        theta[:, 1, 0] = -sin/scale_x
-        theta[:, 1, 1] = cos/scale_y
-        theta[:, 1, 2] = -tx*sin/scale_x+ty*cos/scale_y
-
-        grid = F.affine_grid(theta, adv_patch_boven_arm_r.shape)
-
-        adv_patch_boven_arm_r = F.grid_sample(adv_patch_boven_arm_r, grid)
-        msk_batch_boven_arm_r = F.grid_sample(msk_batch, grid)
-
+        # Alle patches en masks samenvoegen
         adv_batch_torso = torch.where((adv_batch_torso == 0), adv_patch_boven_arm_l, adv_batch_torso)
         msk_batch_torso = torch.where((msk_batch_torso == 0), msk_batch_boven_arm_l, msk_batch_torso)
 
         adv_batch_torso = torch.where((adv_batch_torso == 0), adv_patch_boven_arm_r, adv_batch_torso)
         msk_batch_torso = torch.where((msk_batch_torso == 0), msk_batch_boven_arm_r, msk_batch_torso)
+
+        adv_batch_torso = torch.where((adv_batch_torso == 0), adv_patch_onder_arm_l, adv_batch_torso)
+        msk_batch_torso = torch.where((msk_batch_torso == 0), msk_batch_onder_arm_l, msk_batch_torso)
+
+        adv_batch_torso = torch.where((adv_batch_torso == 0), adv_patch_onder_arm_r, adv_batch_torso)
+        msk_batch_torso = torch.where((msk_batch_torso == 0), msk_batch_onder_arm_r, msk_batch_torso)
 
         adv_batch = adv_batch_torso.view(s[0], s[1], s[2], s[3], s[4])
         msk_batch = msk_batch_torso.view(s[0], s[1], s[2], s[3], s[4])
@@ -543,6 +471,65 @@ class PatchTransformerKeypointsTensors(nn.Module):
         adv_batch = torch.clamp(adv_batch, 0.000001, 0.999999)
 
         return adv_batch * msk_batch
+
+    def arm_forward(self, adv_patch_arm, img_size, width, kp_top, kp_bottom, anglesize, msk_batch, current_patch_size, batch_size):
+
+        target_size_x = width * self.patch_scale*0.9
+
+        target_size_y = torch.sqrt((kp_top[:, :, 0] - kp_bottom[:, :, 0])**2 + (kp_top[:, :, 1] - kp_bottom[:, :, 1])**2)+1
+        target_size_y *= self.patch_scale*0.9
+
+        # Wanneer de armen niet volledig geannoteerd zijn krijgt men anders uitschieters
+        target_size_y = torch.where(target_size_y > 6*target_size_x, target_size_y/target_size_y, target_size_y)
+
+        # print("SX", target_size_x)
+        # print("SY", target_size_y)
+
+        scale_x = target_size_x / current_patch_size
+        scale_y = target_size_y / current_patch_size
+
+        target_x = (((kp_top[:, :, 0] + kp_bottom[:, :, 0])/2)/img_size).view(np.prod(batch_size))
+        target_y = (((kp_top[:, :, 1] + kp_bottom[:, :, 1])/2)/img_size).view(np.prod(batch_size))
+
+        # print("LB", lab_batch[0:0,:])
+        #
+        # print("TX", target_x)
+        # print("TY", target_y)
+
+        s = adv_patch_arm.size()
+        adv_patch_arm = adv_patch_arm.view(s[0] * s[1], s[2], s[3], s[4])
+
+        angle_degrees = (torch.tan((kp_top[:, :, 0] - kp_bottom[:, :, 0])/(kp_top[:, :, 1] - kp_bottom[:, :, 1]))*57.2958)
+        angle_90 = torch.cuda.FloatTensor(angle_degrees.size(0) * angle_degrees.size(1)).fill_(90)
+        angle_degrees = angle_degrees.view(angle_degrees.size(0) * angle_degrees.size(1))
+        angle_degrees = torch.where(torch.isnan(angle_degrees), angle_90, angle_degrees)
+
+        # angle = torch.cuda.FloatTensor(anglesize).fill_(45)
+        # print("ANGLE", angle_degrees[0])
+
+        scale_x = scale_x.view(anglesize)
+        scale_y = scale_y.view(anglesize)
+
+        tx = (-target_x +0.5)*2
+        ty = (-target_y +0.5)*2
+
+        sin = torch.sin(angle_degrees)
+        cos = torch.cos(angle_degrees)
+
+        theta = torch.cuda.FloatTensor(anglesize, 2, 3).fill_(0)
+        theta[:, 0, 0] = cos/scale_x
+        theta[:, 0, 1] = sin/scale_y
+        theta[:, 0, 2] = tx*cos/scale_x+ty*sin/scale_y
+        theta[:, 1, 0] = -sin/scale_x
+        theta[:, 1, 1] = cos/scale_y
+        theta[:, 1, 2] = -tx*sin/scale_x+ty*cos/scale_y
+
+        grid = F.affine_grid(theta, adv_patch_arm.shape)
+
+        adv_patch_arm = F.grid_sample(adv_patch_arm, grid)
+        msk_batch_arm = F.grid_sample(msk_batch, grid)
+
+        return adv_patch_arm, msk_batch_arm
 
 
 class PatchTransformer(nn.Module):
